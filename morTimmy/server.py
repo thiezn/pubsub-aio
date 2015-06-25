@@ -2,25 +2,133 @@
 
 import asyncio
 import json
-import queue  # Should eventually be replaced with asyncio queue maybe?
 import logging
+from connector import Connector
+
+
+class PubSubConnector(Connector):
+    """ Provides an interface between the clients and pubsubhub server """
+
+    def __init__(self, event_loop):
+        """ Initialises the objects with an empty connections cache. This
+        will hold the protocol objects associated with peers. The passed in
+        event_loop is used to craete connections to the remote peers in the
+        network
+        """
+        self._connections = {}
+        self.event_loop = event_loop
+
+    def _send_message_with_protocol(self, message, protocol):
+        """ Sends the message to the remote peer using the
+        supplied protocol object """
+        protocol.send_string(message)
+
+    def send(self, peer, message, sender):
+        """ Sends a message to the referenced peer
+
+        Args:
+            peer:       PeerNode object
+            message:    message to send
+            sender:     The sender
+        """
+        delivered = asyncio.Future()
+        if peer.network_id in self._connections:
+            # Use the cached protocol object
+            protocol = self._connections[peer.network_id]
+            try:
+                self._send_message_with_protocol(message, protocol)
+                delivered.set_result(True)
+                return delivered
+            except:
+                # Continue and retry with a fresh connection. E.G. perhaps the
+                # transport dropped but the remote peer is still online.
+                # clean up the old protocol object
+                del self._connections[peer.network_id]
+        # Create a new connection and cache it for future use
+        protocol = lambda: PubHubServerProtocol(self, sender)
+        coro = self.event_loop.create_connection(protocol, peer.address,
+                                                 peer.port)
+        connection = asyncio.Task(coro)
+
+        def on_connect(task, peer=peer, message=message, connector=self,
+                       delivered=delivered):
+            """ Once a connection is established handle the sending of the
+            message and caching of protocol for later use """
+            try:
+                if task.result():
+                    protocol = task.result()[1]
+                    connector._send_message_with_protocol(message, protocol)
+                    connector._connections[peer.network_id] = protocol
+                    delivered.set_result(True)
+            except Exception as ex:
+                # There was a problem so pass up the callback chain
+                # for upstream to handle what to do. (e.g. punish
+                # the problem remote peer
+                delivered.set_exception(ex)
+
+        connection.add_done_callback(on_connect)
+        return delivered
+
+    def recv(self, data, sender, handler, protocol):
+        """ Called when a message is received from a remote node on the
+        network
+
+        Args:
+            data:       The received raw message data
+            sender:     The address, port tuple of the sender
+            handler:    The local node that received the message
+            protocol:   The protocol of the local node
+        """
+        try:
+            message = data
+            network_id = sender.network_id
+            reply = handler.message_received(message, protocol,
+                                             sender.address, sender.port)
+
+            if reply:
+                self._send_message_with_protocol(reply, protocol)
+            # Cache the connection
+            if network_id not in self._connections:
+                # if the remote node is a new peer cache the protocol
+                self._connections[network_id] = protocol
+            elif self._connections[network_id] != protocol:
+                # If the remote node has a cached protocol that appears to
+                # have expired, replace the stored protocol
+                self._connections[network_id] = protocol
+        except Exception as ex:
+            # Lets try and catch any errors, need to see what kind of
+            # things we can expect
+            print(ex)
 
 
 class PubHubServerProtocol(asyncio.Protocol):
     """ A Server Protocol listening for subscriber messages """
 
-    def __init__(self, pubsubhub, loop):
-        self.loop = loop
-        self.pubsubhub = pubsubhub
-        self.recv_queue = queue.Queue()
+    def __init__(self, connector, node):
+        """ Connector mediates between the node and the Protocol.
+        Node is the local node on the network that handles incoming
+        messages """
+        self._connector = connector
+        self._node = node
+
+    def message_received(self, data):
+        """ Process the raw data with the connector and local node """
+        peer = self.transport.get_extra_info('peername')[0]
+        self._connector.receive(data, peer, self._node, self)
 
     def connection_made(self, transport):
-        """ Called when connection is initiated """
+        """ Called when connection is initiated to this node """
 
-        self.peername = transport.get_extra_info('peername')
+        print("connection from {}".format(self.peername))
         logging.info('connection from {}'.format(self.peername))
-        print('connection from {}'.format(self.peername))
         self.transport = transport
+
+    def serialize_msg(self, message):
+        """ This function takes a dictionary
+        and serializes it to a message ready to send
+        """
+        msg = json.dumps(message, separators=(',', ':')) + "\r\n"
+        return msg.encode('utf-8')
 
     def data_received(self, data):
         """ The protocol expects a json message containing
@@ -37,75 +145,13 @@ class PubHubServerProtocol(asyncio.Protocol):
             channel:        The channel the subscriber registered to
             channel_count:  the amount of channels registered
         """
+        self.message_received(data.strip())
 
-        # Receive a message and decode the json output.
-        # TODO for some reason I need to do the intermediate tmp variable
-        # maybe the data received needs to be clearned every time?
-
-        for msg in data.decode().splitlines():
-            self.recv_queue.put(msg)
-
-        while not self.recv_queue.empty():
-            recv_message = json.loads(self.recv_queue.get())
-
-            # Check the message type and subscribe/unsubscribe
-            # to the channel. If the action was succesful inform
-            # the client.
-            if recv_message['type'] == 'subscribe':
-                self.pubsubhub.register_subscriber(self.peername, recv_message['channel'])
-                print('Client {} subscribed to {}'.format(self.peername,
-                                                          recv_message['channel']))
-                print('subscribers are now {}'.format(pubsubhub.subscribers))
-                send_message = json.dumps({'type': 'subscribe',
-                                           'channel': recv_message['channel'],
-                                           'channel_count': 10},
-                                          separators=(',', ':'))
-            elif recv_message['type'] == 'unsubscribe':
-                print(recv_message)
-                self.pubsubhub.unregister_subscriber(self.peername, recv_message['channel'])
-                print('Client {} unsubscribed from {}'
-                      .format(self.peername, recv_message['channel']))
-                print('subscribers are now {}'.format(pubsubhub.subscribers))
-                send_message = json.dumps({'type': 'unsubscribe',
-                                           'channel': recv_message['channel'],
-                                           'channel_count': 9},
-                                          separators=(',', ':'))
-            elif recv_message['type'] == 'disconnect':
-                print(recv_message)
-                print("Closing connection to {}".format(self.peername))
-                send_message = json.dumps({'type': 'disconnect'},
-                                          separators=(',', ':'))
-            else:
-                print('Invalid message type {}'.format(recv_message['type']))
-                send_message = json.dumps({'type': 'unknown_type'},
-                                          separators=(',', ':'))
-
-            send_message += "\r\n"
-            print('Sending {!r}'.format(send_message))
-            self.transport.write(send_message.encode())
-
-            if recv_message['type'] == 'disconnect':
-                self.transport.close()
-
-    def eof_received(self):
-        """ an EOF has been received from the client.
-
-        This indicates the client has gracefully exited
-        the connection. Inform the pubsub hub that the
-        subscriber is gone
-        """
-        print('Client {} closed connection'.format(self.peername))
-        self.transport.close()
-
-    def connection_lost(self, exc):
-        """ A transport error or EOF is seen which
-        means the client is disconnected.
-
-        Inform the pubsub hub that the subscriber has
-        dissapeared
-        """
-        if exc:
-            print('{} {}'.format(exc, self.peername))
+    def send_string(self, data):
+        """ encodes and sends a string of data to the node at the
+        other end of self.transport. """
+        message = json.dumps(data, separators=(',', ':')) + "\r\n"
+        return message.encode('utf-8')
 
 
 class PubSubHub:
@@ -127,18 +173,39 @@ class PubSubHub:
         greater distributed architecture.
         """
         self.name = name
-        self.message_queue = queue.Queue
         self.subscribers = {}
-
-    def notify_subscribers(self, channel, message):
-        self.message_queue.put({'channel': channel,
-                                'message': message})
+        self.publishers = {}
+        self.notify_queue = []
 
     def register_subscriber(self, subscriber, channel):
         self.subscribers.setdefault(channel, []).append(subscriber)
+        logging.info('Client {} subscribed to {}'.format(subscriber, channel))
+        logging.debug('subscribers are now {}'.format(self.subscribers))
 
     def unregister_subscriber(self, subscriber, channel):
         self.subscribers[channel].remove(subscriber)
+
+    def disconnect_subscriber(self, subscriber):
+        for key, value in self.subscribers.items():
+            if subscriber in value:
+                self.subscribers[key].remove(subscriber)
+                logging.info("{} removed from {} because of disconnect message"
+                             .format(subscriber, key))
+
+    def notify_subscribers(self, peername, recv_message):
+        for subscriber in self.subscribers[recv_message['channel']]:
+            self.notify_queue.append({'peer': subscriber,
+                                      'channel': recv_message['channel'],
+                                      'data': recv_message['data']})
+
+    def register_publisher(self, publisher, channel):
+        self.publishers.setdefault(channel, []).append(publisher)
+
+    def unregister_publisher(self, publisher):
+        for key, value in self.publishers.items():
+            if publisher in value:
+                self.publishers[key].remove(publisher)
+                logging.info("publisher {} removed".format(publisher))
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import queue
+import pubsub
 
 
 class SubscriberClientProtocol(asyncio.Protocol):
@@ -25,7 +26,7 @@ class SubscriberClientProtocol(asyncio.Protocol):
         # Pause this subroutine until self._ready.set() is issued
         yield from self._ready.wait()
         print("Waiting for messages in the queue...")
-        while True:
+        while self._ready.is_set():
             # Pause this subroutine until self.send_queue.get() is completed
             message = yield from self.send_queue.get()
             self.transport.write(message.encode())
@@ -64,7 +65,6 @@ class SubscriberClientProtocol(asyncio.Protocol):
         """
 
         for msg in data.decode().splitlines():
-            print(msg)
             self.recv_queue.put(msg)
 
         while not self.recv_queue.empty():
@@ -74,6 +74,7 @@ class SubscriberClientProtocol(asyncio.Protocol):
     def connection_lost(self, exc):
         print('The server closed the connection')
         print('Stop the event loop')
+        self.transport.close()
         self.loop.stop()
 
 
@@ -99,12 +100,13 @@ def feed_messages(protocol):
     # Pause this subroutine until protocol.send_message has a result
     yield from protocol.send_message(message)
 
+    """
     message = json.dumps({'type': 'unsubscribe', 'channel': 'blert'},
                          separators=(',', ':'))
     message += "\r\n"
     # Pause this subroutine until protocol.send_message has a result
     yield from protocol.send_message(message)
-
+    """
     message = json.dumps({'type': 'disconnect'},
                          separators=(',', ':'))
     message += "\r\n"
@@ -113,12 +115,13 @@ def feed_messages(protocol):
 
 
 if __name__ == '__main__':
+    subscriber = Subscriber('127.0.0.1', 10666)
 
     loop = asyncio.get_event_loop()
     coro = loop.create_connection(lambda: SubscriberClientProtocol(loop),
                                   '127.0.0.1', 10666)
     _, proto = loop.run_until_complete(coro)
-    asyncio.async(feed_messages(proto))  # asyncio.ensure_future >3.4.3
+    task = asyncio.async(feed_messages(proto))  # asyncio.ensure_future >3.4.3
 
     try:
         loop.run_forever()
