@@ -21,7 +21,7 @@ class PubSubConnector(Connector):
     def _send_message_with_protocol(self, message, protocol):
         """ Sends the message to the remote peer using the
         supplied protocol object """
-        protocol.send_string(message)
+        protocol.send_msg(message)
 
     def send(self, peer, message, sender):
         """ Sends a message to the referenced peer
@@ -116,7 +116,19 @@ class PubHubServerProtocol(asyncio.Protocol):
 
         TODO: What are we going to do with the Data?
         """
-        print(data)
+        if data['type'] == 'subscribe':
+            self._connector.register_subscriber(self.peername, data['channel'])
+            self.send_msg(data)
+        elif data['type'] == 'unsubscribe':
+            self._connector.unregister_subscriber(self.peername,
+                                                  data['channel'])
+        elif data['type'] == 'publish':
+            self._connector.register_publisher(self.peername, data['channel'])
+        elif data['type'] == 'unpublish':
+            self._connector.unregister_publisher(self.peername,
+                                                 data['channel'])
+        elif data['type'] == 'notify':
+            self._connector.notify_subscribers(self.peername, data)
 
     def connection_made(self, transport):
         """ Called when connection is initiated to this node """
@@ -125,13 +137,6 @@ class PubHubServerProtocol(asyncio.Protocol):
         self.peername = self.transport.get_extra_info('peername')
         print("connection from {}".format(self.peername))
         logging.info('connection from {} '.format(self.peername))
-
-    def serialize_msg(self, message):
-        """ This function takes a dictionary
-        and serializes it to a message ready to send
-        """
-        msg = json.dumps(message, separators=(',', ':')) + "\r\n"
-        return msg.encode('utf-8')
 
     def data_received(self, data):
         """ The protocol expects a json message containing
@@ -148,11 +153,18 @@ class PubHubServerProtocol(asyncio.Protocol):
             channel:        The channel the subscriber registered to
             channel_count:  the amount of channels registered
         """
-        self.message_received(data)
+        # TODO: have to create a message buffer, splitting messages with \r\n
+        # For now assume we only receive one liners
 
-    def send_string(self, data):
-        """ encodes and sends a string of data to the node at the
-        other end of self.transport. """
+        self.message_received(json.loads(data.decode("utf-8")))
+
+    def send_msg(self, data):
+        """ This function takes a dictionary
+        and serializes it to a message ready to send
+
+        Spaces are removed from the JSON data to conserve bytes. The
+        message is terminated by line feed (\r\n) """
+
         message = json.dumps(data, separators=(',', ':')) + "\r\n"
         return message.encode('utf-8')
 
@@ -195,11 +207,19 @@ class PubSubHub:
                 logging.info("{} removed from {} because of disconnect message"
                              .format(subscriber, key))
 
-    def notify_subscribers(self, peername, recv_message):
-        for subscriber in self.subscribers[recv_message['channel']]:
-            self.notify_queue.append({'peer': subscriber,
-                                      'channel': recv_message['channel'],
-                                      'data': recv_message['data']})
+    def notify_subscribers(self, peername, recv_msg):
+        try:
+            for subscriber in self.subscribers[recv_msg['channel']]:
+                self.notify_queue.append({'peer': subscriber,
+                                          'channel': recv_msg['channel'],
+                                          'data': recv_msg['data']})
+                print("Notified {}, "
+                      "Channel: {}, "
+                      "data: {}".format(subscriber, recv_msg['channel'],
+                                        recv_msg['data']))
+        except KeyError:
+            logging.debug("Unable to notify subscribers. did anyone register "
+                          "to the channel?")
 
     def register_publisher(self, publisher, channel):
         self.publishers.setdefault(channel, []).append(publisher)

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 import random
-from libs.pubsub import Publisher
+from libs.pubsub import PubSubClient
 from time import sleep
 
 if __name__ == '__main__':
-    publisher = Publisher('127.0.0.1', 10666)
+    publisher = PubSubClient('127.0.0.1', 10666)
 
     while True:
         recv_message = publisher.protocol.recv_message()
