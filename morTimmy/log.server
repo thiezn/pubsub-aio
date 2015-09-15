@@ -1,5 +1,0 @@
-2015-09-15 16:16:16,352 INFO Initialising the PubSub Hub application
-2015-09-15 16:16:16,352 DEBUG Using selector: EpollSelector
-2015-09-15 16:16:16,357 INFO Serving on ('127.0.0.1', 10666)
-2015-09-15 16:16:21,449 INFO connection from ('127.0.0.1', 49067) 
-2015-09-15 16:16:31,206 INFO connection from ('127.0.0.1', 49069) 
