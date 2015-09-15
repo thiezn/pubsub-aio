@@ -112,9 +112,11 @@ class PubHubServerProtocol(asyncio.Protocol):
         self._node = node
 
     def message_received(self, data):
-        """ Process the raw data with the connector and local node """
-        peer = self.transport.get_extra_info('peername')[0]
-        self._connector.receive(data, peer, self._node, self)
+        """ Process the raw data with the connector and local node 
+
+        TODO: What are we going to do with the Data?
+        """
+        print(data)
 
     def connection_made(self, transport):
         """ Called when connection is initiated to this node """
@@ -145,7 +147,7 @@ class PubHubServerProtocol(asyncio.Protocol):
             channel:        The channel the subscriber registered to
             channel_count:  the amount of channels registered
         """
-        self.message_received(data.strip())
+        self.message_received(data)
 
     def send_string(self, data):
         """ encodes and sends a string of data to the node at the
