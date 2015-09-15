@@ -112,7 +112,7 @@ class PubHubServerProtocol(asyncio.Protocol):
         self._node = node
 
     def message_received(self, data):
-        """ Process the raw data with the connector and local node 
+        """ Process the raw data with the connector and local node
 
         TODO: What are we going to do with the Data?
         """
@@ -121,9 +121,10 @@ class PubHubServerProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         """ Called when connection is initiated to this node """
 
-        print("connection from {}".format(self.peername))
-        logging.info('connection from {}'.format(self.peername))
         self.transport = transport
+        self.peername = self.transport.get_extra_info('peername')
+        print("connection from {}".format(self.peername))
+        logging.info('connection from {} '.format(self.peername))
 
     def serialize_msg(self, message):
         """ This function takes a dictionary
