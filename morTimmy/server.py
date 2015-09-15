@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from connector import Connector
+from libs.connector import Connector
 
 
 class PubSubConnector(Connector):

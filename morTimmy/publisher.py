@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import random
-from pubsub import Publisher
+from libs.pubsub import Publisher
 from time import sleep
 
 if __name__ == '__main__':

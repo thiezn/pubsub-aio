@@ -1,2 +1,19 @@
-2015-09-15 15:50:41,465 INFO Initialising the PubSub Hub application
-2015-09-15 15:50:41,466 DEBUG Using selector: EpollSelector
+2015-09-15 15:56:03,184 INFO Initialising the PubSub Hub application
+2015-09-15 15:56:03,184 DEBUG Using selector: EpollSelector
+2015-09-15 15:56:03,189 INFO Serving on ('127.0.0.1', 10666)
+2015-09-15 15:56:07,864 ERROR Exception in callback PubHubServerProtocol.connection_made(<_SelectorSoc...e, bufsize=0>>)
+handle: <Handle PubHubServerProtocol.connection_made(<_SelectorSoc...e, bufsize=0>>)>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.5/asyncio/events.py", line 125, in _run
+    self._callback(*self._args)
+  File "./server.py", line 124, in connection_made
+    print("connection from {}".format(self.peername))
+AttributeError: 'PubHubServerProtocol' object has no attribute 'peername'
+2015-09-15 15:56:14,214 ERROR Exception in callback PubHubServerProtocol.connection_made(<_SelectorSoc...e, bufsize=0>>)
+handle: <Handle PubHubServerProtocol.connection_made(<_SelectorSoc...e, bufsize=0>>)>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.5/asyncio/events.py", line 125, in _run
+    self._callback(*self._args)
+  File "./server.py", line 124, in connection_made
+    print("connection from {}".format(self.peername))
+AttributeError: 'PubHubServerProtocol' object has no attribute 'peername'

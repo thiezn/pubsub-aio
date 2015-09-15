@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from pubsub import Subscriber
+from libs.pubsub import Subscriber
 from time import sleep
 
 if __name__ == '__main__':

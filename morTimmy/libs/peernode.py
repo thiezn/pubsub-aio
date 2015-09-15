@@ -3,6 +3,9 @@
 from hashlib import sha512
 
 
+# At the moment this library isn't used yet. Would be good to incoroporate this
+# into the model to have a clean way of identifying a unique node
+
 def create_network_id(addr_port_tuple):
     """ Given a tuple of peer address and port this
     will generate a unique network_id.
